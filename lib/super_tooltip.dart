@@ -168,7 +168,11 @@ class SuperTooltip {
 
   ///
   /// arrow distance from center
-  final double arrowFromTopLeft;
+  final double? arrowFromTopLeft;
+
+  ///
+  /// whether arrow should be center or not
+  final bool isCenterArrow;
 
   Offset? _targetCenter;
   OverlayEntry? _backGroundOverlay;
@@ -216,10 +220,12 @@ class SuperTooltip {
     this.blockOutsidePointerEvents = true,
     this.containsBackgroundOverlay = true,
     this.automaticallyVerticalDirection = false,
-    this.arrowFromTopLeft = 0,
+    this.arrowFromTopLeft,
+    this.isCenterArrow = true,
   })  : assert((maxWidth ?? double.infinity) >= (minWidth ?? 0.0)),
         assert((maxHeight ?? double.infinity) >= (minHeight ?? 0.0)),
-        assert(arrowFromTopLeft >= 0);
+        assert((isCenterArrow && arrowFromTopLeft == null) ||
+            (!isCenterArrow && arrowFromTopLeft != null));
 
   ///
   /// Removes the Tooltip from the overlay
@@ -337,18 +343,21 @@ class SuperTooltip {
                 child: Center(
                     child: CustomSingleChildLayout(
                         delegate: _PopupBallonLayoutDelegate(
-                          popupDirection: popupDirection,
-                          targetCenter: _targetCenter,
-                          minWidth: minWidth,
-                          maxWidth: maxWidth,
-                          minHeight: minHeight,
-                          maxHeight: maxHeight,
-                          outSidePadding: minimumOutSidePadding,
-                          top: top,
-                          bottom: bottom,
-                          left: left,
-                          right: right,
-                        ),
+                            popupDirection: popupDirection,
+                            targetCenter: _targetCenter,
+                            minWidth: minWidth,
+                            maxWidth: maxWidth,
+                            minHeight: minHeight,
+                            maxHeight: maxHeight,
+                            outSidePadding: minimumOutSidePadding,
+                            top: top,
+                            bottom: bottom,
+                            left: left,
+                            right: right,
+                            arrowFromTopLeft: arrowFromTopLeft,
+                            borderRadius: borderRadius,
+                            arrowWidth: arrowBaseWidth,
+                            isCenterArrow: isCenterArrow),
                         child: Stack(
                           fit: StackFit.passthrough,
                           children: [
@@ -387,18 +396,20 @@ class SuperTooltip {
                   ]
                 : null,
             shape: _BubbleShape(
-                popupDirection,
-                _targetCenter,
-                borderRadius,
-                arrowBaseWidth,
-                arrowTipDistance,
-                borderColor,
-                borderWidth,
-                left,
-                top,
-                right,
-                bottom,
-                arrowFromTopLeft)),
+              popupDirection,
+              _targetCenter,
+              borderRadius,
+              arrowBaseWidth,
+              arrowTipDistance,
+              borderColor,
+              borderWidth,
+              left,
+              top,
+              right,
+              bottom,
+              arrowFromTopLeft ?? 0,
+              isCenterArrow,
+            )),
         margin: _getBallonContainerMargin(),
         child: content,
       ),
@@ -522,6 +533,10 @@ class _PopupBallonLayoutDelegate extends SingleChildLayoutDelegate {
   final double? _left;
   final double? _right;
   final double? _outSidePadding;
+  final double _arrowFromTopLeft;
+  final double _borderRadius;
+  final double _arrowWidth;
+  final bool _isCenterArrow;
 
   _PopupBallonLayoutDelegate({
     TooltipDirection? popupDirection,
@@ -535,6 +550,10 @@ class _PopupBallonLayoutDelegate extends SingleChildLayoutDelegate {
     double? bottom,
     double? left,
     double? right,
+    double? arrowFromTopLeft,
+    double? borderRadius,
+    double? arrowWidth,
+    required bool isCenterArrow,
   })  : _targetCenter = targetCenter,
         _popupDirection = popupDirection,
         _minWidth = minWidth,
@@ -545,7 +564,11 @@ class _PopupBallonLayoutDelegate extends SingleChildLayoutDelegate {
         _bottom = bottom,
         _left = left,
         _right = right,
-        _outSidePadding = outSidePadding;
+        _outSidePadding = outSidePadding,
+        _arrowFromTopLeft = arrowFromTopLeft ?? 0,
+        _borderRadius = borderRadius ?? 0,
+        _arrowWidth = arrowWidth ?? 0,
+        _isCenterArrow = isCenterArrow;
 
   @override
   Offset getPositionForChild(Size size, Size childSize) {
@@ -596,22 +619,59 @@ class _PopupBallonLayoutDelegate extends SingleChildLayoutDelegate {
     }
 
     switch (_popupDirection) {
-      //
       case TooltipDirection.down:
-        return new Offset(calcLeftMostXtoTarget()!, _targetCenter!.dy);
+        final arrowFromTopLeft = _arrowFromTopLeft > childSize.width
+            ? childSize.width
+            : _arrowFromTopLeft;
+        final awayFromCenter = _isCenterArrow
+            ? 0
+            : childSize.height / 2 -
+                arrowFromTopLeft -
+                _borderRadius -
+                _arrowWidth / 2;
+        return new Offset(
+            calcLeftMostXtoTarget()! + awayFromCenter, _targetCenter!.dy);
 
       case TooltipDirection.up:
         var top = _top ?? _targetCenter!.dy - childSize.height;
-        return new Offset(calcLeftMostXtoTarget()!, top);
+        // 만약 센터 화살표가 아니면 이동한 만큼 툴팁의 위치를 옮겨준다.
+        final arrowFromTopLeft = _arrowFromTopLeft > childSize.width
+            ? childSize.width
+            : _arrowFromTopLeft;
+        final awayFromCenter = _isCenterArrow
+            ? 0
+            : childSize.height / 2 -
+                arrowFromTopLeft -
+                _borderRadius -
+                _arrowWidth / 2;
+        return new Offset(calcLeftMostXtoTarget()! + awayFromCenter, top);
 
       case TooltipDirection.left:
+        final arrowFromTopLeft = _arrowFromTopLeft > childSize.height
+            ? childSize.height
+            : _arrowFromTopLeft;
+        final awayFromCenter = _isCenterArrow
+            ? 0
+            : childSize.height / 2 -
+                arrowFromTopLeft -
+                _borderRadius -
+                _arrowWidth / 2;
         var left = _left ?? _targetCenter!.dx - childSize.width;
-        return new Offset(left, calcTopMostYtoTarget()!);
+        return new Offset(left, calcTopMostYtoTarget()! + awayFromCenter);
 
       case TooltipDirection.right:
+        final arrowFromTopLeft = _arrowFromTopLeft > childSize.height
+            ? childSize.height
+            : _arrowFromTopLeft;
+        final awayFromCenter = _isCenterArrow
+            ? 0
+            : childSize.height / 2 -
+                arrowFromTopLeft -
+                _borderRadius -
+                _arrowWidth / 2;
         return new Offset(
           _targetCenter!.dx,
-          calcTopMostYtoTarget()!,
+          calcTopMostYtoTarget()! + awayFromCenter,
         );
 
       default:
@@ -745,6 +805,7 @@ class _BubbleShape extends ShapeBorder {
   final double? left, top, right, bottom;
   final TooltipDirection popupDirection;
   final double arrowFromTopLeft;
+  final bool isCenterArrow;
 
   _BubbleShape(
     this.popupDirection,
@@ -759,6 +820,7 @@ class _BubbleShape extends ShapeBorder {
     this.right,
     this.bottom,
     this.arrowFromTopLeft,
+    this.isCenterArrow,
   );
 
   @override
@@ -784,6 +846,12 @@ class _BubbleShape extends ShapeBorder {
 
     // [arrowFromTopLeft]가 적용된 각 상하좌우 맥시멈 끝값
     late double leftWithAFTL, rightWithAFTL, topWithAFTL, bottomWithAFTL;
+
+    // [isCenterArrow]가 적용된 각 상하좌우 끝값
+    late double leftWithAutoCenter,
+        rightWithAutoCenter,
+        topWithAutoCenter,
+        bottomWithAutoCenter;
 
     Path _getLeftTopPath(Rect rect) {
       return new Path()
@@ -832,10 +900,7 @@ class _BubbleShape extends ShapeBorder {
     );
     // 왼쪽끝에서 오른쪽으로 화살표를 움직이고, 화살표의 너비만큼 오른쪽으로 움직인 값과, 오른쪽 끝값중 더 작은값을 가지도록 한다.
     // arrowFromTopLeft나 arrowBaseWidth가 너무 커서 오른쪽 끝값을 넘어서는 경우 오른쪽 끝값으로 가지게 하기 위함이다.
-    rightWithAFTL = min(
-      rightEnd,
-      leftEnd + arrowFromTopLeft + arrowBaseWidth,
-    );
+    rightWithAFTL = min(rightEnd, leftEnd + arrowFromTopLeft + arrowBaseWidth);
     // arrowBaseWidth가 너무 커서 위쪽 끝값을 넘어서는 경우 위쪽 끝값을 가지도록 하게 한다.
     topWithAFTL = max(
       topEnd,
@@ -849,82 +914,116 @@ class _BubbleShape extends ShapeBorder {
     // arrowFromTopLeft나 arrowBaseWidth가 너무 큰 경우 아래쪽 끝값을 넘어서는 경우 아래쪽 끝값을 가리키도록 하게 한다.
     bottomWithAFTL = min(bottomEnd, topEnd + arrowFromTopLeft + arrowBaseWidth);
 
+    // 화살표가 자동으로 가운데면 적용되어야 하는 상하좌우 끝값
+    leftWithAutoCenter = max(
+        min(targetCenter!.dx - arrowBaseWidth / 2, rightEnd - arrowBaseWidth),
+        rect.left + topLeftRadius);
+
+    rightWithAutoCenter = min(
+        max(targetCenter!.dx + arrowBaseWidth / 2, leftEnd + arrowBaseWidth),
+        rect.right - topRightRadius);
+
+    topWithAutoCenter = max(
+        min(targetCenter!.dy - arrowBaseWidth / 2, bottomEnd - arrowBaseWidth),
+        topEnd);
+
+    bottomWithAutoCenter =
+        min(targetCenter!.dy + arrowBaseWidth / 2, bottomEnd + arrowBaseWidth);
+
     switch (popupDirection) {
       case TooltipDirection.down:
         return _getBottomRightPath(rect)
-          ..lineTo(rightWithAFTL, rect.top)
-          ..lineTo((leftWithAFTL + rightWithAFTL) / 2,
+          ..lineTo(
+              isCenterArrow ? rightWithAutoCenter : rightWithAFTL, rect.top)
+          ..lineTo(
+              isCenterArrow
+                  ? targetCenter!.dx
+                  : (leftWithAFTL + rightWithAFTL) / 2,
               targetCenter!.dy + arrowTipDistance) // up to arrow tip   \
-          ..lineTo(leftWithAFTL, rect.top) //  down /
+          ..lineTo(isCenterArrow ? leftWithAutoCenter : leftWithAFTL,
+              rect.top) //  down /
 
-          ..lineTo(rect.left + topLeftRadius, rect.top)
-          ..arcToPoint(Offset(rect.left, rect.top + topLeftRadius),
+          ..lineTo(leftEnd, rect.top)
+          ..arcToPoint(Offset(rect.left, topEnd),
               radius: new Radius.circular(topLeftRadius), clockwise: false)
-          ..lineTo(rect.left, rect.bottom - bottomLeftRadius)
-          ..arcToPoint(Offset(rect.left + bottomLeftRadius, rect.bottom),
+          ..lineTo(rect.left, bottomEnd)
+          ..arcToPoint(Offset(leftEnd, rect.bottom),
               radius: new Radius.circular(bottomLeftRadius), clockwise: false);
 
       case TooltipDirection.up:
         return _getLeftTopPath(rect)
-          ..lineTo(rect.right, rect.bottom - bottomRightRadius)
-          ..arcToPoint(Offset(rect.right - bottomRightRadius, rect.bottom),
+          ..lineTo(rect.right, bottomEnd)
+          ..arcToPoint(Offset(rightEnd, rect.bottom),
               radius: new Radius.circular(bottomRightRadius), clockwise: true)
-          ..lineTo(rightWithAFTL, rect.bottom)
+          ..lineTo(
+              isCenterArrow ? rightWithAutoCenter : rightWithAFTL, rect.bottom)
 
           // up to arrow tip   \
-          ..lineTo((rightWithAFTL + leftWithAFTL) / 2,
+          ..lineTo(
+              isCenterArrow
+                  ? targetCenter!.dx
+                  : (leftWithAFTL + rightWithAFTL) / 2,
               targetCenter!.dy - arrowTipDistance)
 
           //  down /
-          ..lineTo(leftWithAFTL, rect.bottom)
-          ..lineTo(rect.left + bottomLeftRadius, rect.bottom)
-          ..arcToPoint(Offset(rect.left, rect.bottom - bottomLeftRadius),
+          ..lineTo(
+              isCenterArrow ? leftWithAutoCenter : leftWithAFTL, rect.bottom)
+          ..lineTo(leftEnd, rect.bottom)
+          ..arcToPoint(Offset(rect.left, bottomEnd),
               radius: new Radius.circular(bottomLeftRadius), clockwise: true)
-          ..lineTo(rect.left, rect.top + topLeftRadius)
-          ..arcToPoint(Offset(rect.left + topLeftRadius, rect.top),
+          ..lineTo(rect.left, topEnd)
+          ..arcToPoint(Offset(leftEnd, rect.top),
               radius: new Radius.circular(topLeftRadius), clockwise: true);
 
       case TooltipDirection.left:
         return _getLeftTopPath(rect)
-          ..lineTo(rect.right, bottomWithAFTL)
-          ..lineTo(targetCenter!.dx - arrowTipDistance,
-              (bottomWithAFTL + topWithAFTL) / 2) // right to arrow tip   \
+          ..lineTo(
+              rect.right, isCenterArrow ? bottomWithAutoCenter : bottomWithAFTL)
+          ..lineTo(
+            targetCenter!.dx - arrowTipDistance,
+            isCenterArrow
+                ? targetCenter!.dy
+                : (topWithAFTL + bottomWithAFTL) / 2,
+          ) // right to arrow tip   \
           //  left /
           ..lineTo(
             rect.right,
-            topWithAFTL,
+            isCenterArrow ? topWithAutoCenter : topWithAFTL,
           )
-          ..lineTo(rect.right, rect.bottom - borderRadius)
-          ..arcToPoint(Offset(rect.right - bottomRightRadius, rect.bottom),
+          ..lineTo(rect.right, bottomEnd)
+          ..arcToPoint(Offset(rightEnd, rect.bottom),
               radius: new Radius.circular(bottomRightRadius), clockwise: true)
-          ..lineTo(rect.left + bottomLeftRadius, rect.bottom)
-          ..arcToPoint(Offset(rect.left, rect.bottom - bottomLeftRadius),
+          ..lineTo(leftEnd, rect.bottom)
+          ..arcToPoint(Offset(rect.left, bottomEnd),
               radius: new Radius.circular(bottomLeftRadius), clockwise: true);
 
       case TooltipDirection.right:
         return _getBottomRightPath(rect)
-          ..lineTo(rect.left + topLeftRadius, rect.top)
-          ..arcToPoint(Offset(rect.left, rect.top + topLeftRadius),
+          ..lineTo(leftEnd, rect.top)
+          ..arcToPoint(Offset(rect.left, topEnd),
               radius: new Radius.circular(topLeftRadius), clockwise: false)
           ..lineTo(
             rect.left,
-            bottomWithAFTL,
+            isCenterArrow ? bottomWithAutoCenter : bottomWithAFTL,
           )
 
           //left to arrow tip   /
           ..lineTo(
             targetCenter!.dx + arrowTipDistance,
-            (bottomWithAFTL + topWithAFTL) / 2,
+            isCenterArrow
+                ? targetCenter!.dy
+                : (topWithAFTL + bottomWithAFTL) / 2,
           )
 
           //  right \
           ..lineTo(
             rect.left,
-            topWithAFTL,
+            isCenterArrow ? topWithAutoCenter : topWithAFTL,
           )
-          ..lineTo(rect.left, rect.bottom - bottomLeftRadius)
-          ..arcToPoint(Offset(rect.left + bottomLeftRadius, rect.bottom),
-              radius: new Radius.circular(bottomLeftRadius), clockwise: false);
+          ..lineTo(rect.left, bottomEnd)
+          ..arcToPoint(Offset(leftEnd, rect.bottom),
+              radius: new Radius.circular(bottomLeftRadius), clockwise: false)
+          ..moveTo(0, -100);
 
       default:
         throw AssertionError(popupDirection);
@@ -1009,19 +1108,19 @@ class _BubbleShape extends ShapeBorder {
   @override
   ShapeBorder scale(double t) {
     return new _BubbleShape(
-      popupDirection,
-      targetCenter,
-      borderRadius,
-      arrowBaseWidth,
-      arrowTipDistance,
-      borderColor,
-      borderWidth,
-      left,
-      top,
-      right,
-      bottom,
-      arrowFromTopLeft,
-    );
+        popupDirection,
+        targetCenter,
+        borderRadius,
+        arrowBaseWidth,
+        arrowTipDistance,
+        borderColor,
+        borderWidth,
+        left,
+        top,
+        right,
+        bottom,
+        arrowFromTopLeft,
+        isCenterArrow);
   }
 }
 
