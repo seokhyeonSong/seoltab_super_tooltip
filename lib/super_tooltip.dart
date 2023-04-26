@@ -174,6 +174,10 @@ class SuperTooltip {
   /// whether arrow should be center or not
   final bool isCenterArrow;
 
+  ///
+  /// content's padding
+  final EdgeInsets contentPadding;
+
   Offset? _targetCenter;
   OverlayEntry? _backGroundOverlay;
   OverlayEntry? _ballonOverlay;
@@ -222,6 +226,7 @@ class SuperTooltip {
     this.automaticallyVerticalDirection = false,
     this.arrowFromTopLeft,
     this.isCenterArrow = true,
+    this.contentPadding = const EdgeInsets.all(10),
   })  : assert((maxWidth ?? double.infinity) >= (minWidth ?? 0.0)),
         assert((maxHeight ?? double.infinity) >= (minHeight ?? 0.0)),
         assert((isCenterArrow && arrowFromTopLeft == null) ||
@@ -409,6 +414,7 @@ class SuperTooltip {
               bottom,
               arrowFromTopLeft ?? 0,
               isCenterArrow,
+              contentPadding,
             )),
         margin: _getBallonContainerMargin(),
         child: content,
@@ -806,6 +812,7 @@ class _BubbleShape extends ShapeBorder {
   final TooltipDirection popupDirection;
   final double arrowFromTopLeft;
   final bool isCenterArrow;
+  final EdgeInsets contentPadding;
 
   _BubbleShape(
     this.popupDirection,
@@ -821,10 +828,11 @@ class _BubbleShape extends ShapeBorder {
     this.bottom,
     this.arrowFromTopLeft,
     this.isCenterArrow,
+    this.contentPadding,
   );
 
   @override
-  EdgeInsetsGeometry get dimensions => new EdgeInsets.all(10.0);
+  EdgeInsetsGeometry get dimensions => contentPadding;
 
   @override
   Path getInnerPath(Rect rect, {TextDirection? textDirection}) {
@@ -1108,19 +1116,21 @@ class _BubbleShape extends ShapeBorder {
   @override
   ShapeBorder scale(double t) {
     return new _BubbleShape(
-        popupDirection,
-        targetCenter,
-        borderRadius,
-        arrowBaseWidth,
-        arrowTipDistance,
-        borderColor,
-        borderWidth,
-        left,
-        top,
-        right,
-        bottom,
-        arrowFromTopLeft,
-        isCenterArrow);
+      popupDirection,
+      targetCenter,
+      borderRadius,
+      arrowBaseWidth,
+      arrowTipDistance,
+      borderColor,
+      borderWidth,
+      left,
+      top,
+      right,
+      bottom,
+      arrowFromTopLeft,
+      isCenterArrow,
+      contentPadding,
+    );
   }
 }
 
