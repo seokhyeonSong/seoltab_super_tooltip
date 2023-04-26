@@ -4,7 +4,9 @@ import "dart:ui" as ui;
 import 'package:flutter/material.dart';
 
 enum TooltipDirection { up, down, left, right }
+
 enum ShowCloseButton { inside, outside, none }
+
 enum ClipAreaShape { oval, rectangle }
 
 typedef OutSideTapHandler = void Function();
@@ -164,6 +166,10 @@ class SuperTooltip {
   /// The parameter show the title in the tooltip
   final String title;
 
+  ///
+  /// arrow distance from center
+  final double arrowFromCenter;
+
   Offset? _targetCenter;
   OverlayEntry? _backGroundOverlay;
   OverlayEntry? _ballonOverlay;
@@ -210,6 +216,7 @@ class SuperTooltip {
     this.blockOutsidePointerEvents = true,
     this.containsBackgroundOverlay = true,
     this.automaticallyVerticalDirection = false,
+    this.arrowFromCenter = 0,
   })  : assert((maxWidth ?? double.infinity) >= (minWidth ?? 0.0)),
         assert((maxHeight ?? double.infinity) >= (minHeight ?? 0.0));
 
@@ -232,7 +239,7 @@ class SuperTooltip {
   /// Uses [overlay] to show tooltip or [targetContext]'s overlay if [overlay] is null
   void show(BuildContext targetContext, {OverlayState? overlay}) {
     final renderBox = targetContext.findRenderObject() as RenderBox;
-    overlay ??= Overlay.of(targetContext)!;
+    overlay ??= Overlay.of(targetContext);
     final overlayRenderBox = overlay.context.findRenderObject() as RenderBox?;
 
     _targetCenter = renderBox.localToGlobal(renderBox.size.center(Offset.zero),
@@ -389,7 +396,8 @@ class SuperTooltip {
                 left,
                 top,
                 right,
-                bottom)),
+                bottom,
+                arrowFromCenter)),
         margin: _getBallonContainerMargin(),
         child: content,
       ),
@@ -735,19 +743,22 @@ class _BubbleShape extends ShapeBorder {
   final double borderWidth;
   final double? left, top, right, bottom;
   final TooltipDirection popupDirection;
+  final double arrowFromCenter;
 
   _BubbleShape(
-      this.popupDirection,
-      this.targetCenter,
-      this.borderRadius,
-      this.arrowBaseWidth,
-      this.arrowTipDistance,
-      this.borderColor,
-      this.borderWidth,
-      this.left,
-      this.top,
-      this.right,
-      this.bottom);
+    this.popupDirection,
+    this.targetCenter,
+    this.borderRadius,
+    this.arrowBaseWidth,
+    this.arrowTipDistance,
+    this.borderColor,
+    this.borderWidth,
+    this.left,
+    this.top,
+    this.right,
+    this.bottom,
+    this.arrowFromCenter,
+  );
 
   @override
   EdgeInsetsGeometry get dimensions => new EdgeInsets.all(10.0);
@@ -766,6 +777,12 @@ class _BubbleShape extends ShapeBorder {
         topRightRadius,
         bottomLeftRadius,
         bottomRightRadius;
+
+    // 상하좌우 맥시멈 끝값
+    late double leftEnd, rightEnd, topEnd, bottomEnd;
+
+    // [ArrowFromCenter]가 적용된 각 상하좌우 맥시멈 끝값
+    late double leftWithAFC, rightWithAFC, topWithAFC, bottomWithAFC;
 
     Path _getLeftTopPath(Rect rect) {
       return new Path()
@@ -794,25 +811,47 @@ class _BubbleShape extends ShapeBorder {
     bottomLeftRadius = (left == 0 || bottom == 0) ? 0.0 : borderRadius;
     bottomRightRadius = (right == 0 || bottom == 0) ? 0.0 : borderRadius;
 
-    switch (popupDirection) {
-      //
+    leftEnd = rect.left + topLeftRadius;
+    rightEnd = rect.right - bottomRightRadius;
+    topEnd = rect.top + topLeftRadius;
+    bottomEnd = rect.bottom - bottomLeftRadius;
 
+    leftWithAFC = max(
+      leftEnd,
+      min(
+        targetCenter!.dx + arrowFromCenter - arrowBaseWidth / 2,
+        rightEnd - arrowBaseWidth,
+      ),
+    );
+    rightWithAFC = min(
+      rightEnd,
+      max(
+        targetCenter!.dx + arrowFromCenter + arrowBaseWidth / 2,
+        leftEnd + arrowBaseWidth,
+      ),
+    );
+    topWithAFC = max(
+      topEnd,
+      min(
+        targetCenter!.dy - arrowFromCenter - arrowBaseWidth / 2,
+        bottomEnd - arrowBaseWidth,
+      ),
+    );
+    bottomWithAFC = min(
+      bottomEnd,
+      max(
+        targetCenter!.dy - arrowFromCenter + arrowBaseWidth / 2,
+        topEnd + arrowBaseWidth,
+      ),
+    );
+
+    switch (popupDirection) {
       case TooltipDirection.down:
         return _getBottomRightPath(rect)
-          ..lineTo(
-              min(
-                  max(targetCenter!.dx + arrowBaseWidth / 2,
-                      rect.left + borderRadius + arrowBaseWidth),
-                  rect.right - topRightRadius),
-              rect.top)
-          ..lineTo(targetCenter!.dx,
+          ..lineTo(rightWithAFC, rect.top)
+          ..lineTo((leftWithAFC + rightWithAFC) / 2,
               targetCenter!.dy + arrowTipDistance) // up to arrow tip   \
-          ..lineTo(
-              max(
-                  min(targetCenter!.dx - arrowBaseWidth / 2,
-                      rect.right - topLeftRadius - arrowBaseWidth),
-                  rect.left + topLeftRadius),
-              rect.top) //  down /
+          ..lineTo(leftWithAFC, rect.top) //  down /
 
           ..lineTo(rect.left + topLeftRadius, rect.top)
           ..arcToPoint(Offset(rect.left, rect.top + topLeftRadius),
@@ -826,23 +865,14 @@ class _BubbleShape extends ShapeBorder {
           ..lineTo(rect.right, rect.bottom - bottomRightRadius)
           ..arcToPoint(Offset(rect.right - bottomRightRadius, rect.bottom),
               radius: new Radius.circular(bottomRightRadius), clockwise: true)
-          ..lineTo(
-              min(
-                  max(targetCenter!.dx + arrowBaseWidth / 2,
-                      rect.left + bottomLeftRadius + arrowBaseWidth),
-                  rect.right - bottomRightRadius),
-              rect.bottom)
+          ..lineTo(rightWithAFC, rect.bottom)
 
           // up to arrow tip   \
-          ..lineTo(targetCenter!.dx, targetCenter!.dy - arrowTipDistance)
+          ..lineTo((rightWithAFC + leftWithAFC) / 2,
+              targetCenter!.dy - arrowTipDistance)
 
           //  down /
-          ..lineTo(
-              max(
-                  min(targetCenter!.dx - arrowBaseWidth / 2,
-                      rect.right - bottomRightRadius - arrowBaseWidth),
-                  rect.left + bottomLeftRadius),
-              rect.bottom)
+          ..lineTo(leftWithAFC, rect.bottom)
           ..lineTo(rect.left + bottomLeftRadius, rect.bottom)
           ..arcToPoint(Offset(rect.left, rect.bottom - bottomLeftRadius),
               radius: new Radius.circular(bottomLeftRadius), clockwise: true)
@@ -852,19 +882,14 @@ class _BubbleShape extends ShapeBorder {
 
       case TooltipDirection.left:
         return _getLeftTopPath(rect)
-          ..lineTo(
-              rect.right,
-              max(
-                  min(targetCenter!.dy - arrowBaseWidth / 2,
-                      rect.bottom - bottomRightRadius - arrowBaseWidth),
-                  rect.top + topRightRadius))
+          ..lineTo(rect.right, bottomWithAFC)
           ..lineTo(targetCenter!.dx - arrowTipDistance,
-              targetCenter!.dy) // right to arrow tip   \
+              (bottomWithAFC + topWithAFC) / 2) // right to arrow tip   \
           //  left /
           ..lineTo(
-              rect.right,
-              min(targetCenter!.dy + arrowBaseWidth / 2,
-                  rect.bottom - bottomRightRadius))
+            rect.right,
+            topWithAFC,
+          )
           ..lineTo(rect.right, rect.bottom - borderRadius)
           ..arcToPoint(Offset(rect.right - bottomRightRadius, rect.bottom),
               radius: new Radius.circular(bottomRightRadius), clockwise: true)
@@ -878,20 +903,21 @@ class _BubbleShape extends ShapeBorder {
           ..arcToPoint(Offset(rect.left, rect.top + topLeftRadius),
               radius: new Radius.circular(topLeftRadius), clockwise: false)
           ..lineTo(
-              rect.left,
-              max(
-                  min(targetCenter!.dy - arrowBaseWidth / 2,
-                      rect.bottom - bottomLeftRadius - arrowBaseWidth),
-                  rect.top + topLeftRadius))
+            rect.left,
+            bottomWithAFC,
+          )
 
           //left to arrow tip   /
-          ..lineTo(targetCenter!.dx + arrowTipDistance, targetCenter!.dy)
+          ..lineTo(
+            targetCenter!.dx + arrowTipDistance,
+            (bottomWithAFC + topWithAFC) / 2,
+          )
 
           //  right \
           ..lineTo(
-              rect.left,
-              min(targetCenter!.dy + arrowBaseWidth / 2,
-                  rect.bottom - bottomLeftRadius))
+            rect.left,
+            topWithAFC,
+          )
           ..lineTo(rect.left, rect.bottom - bottomLeftRadius)
           ..arcToPoint(Offset(rect.left + bottomLeftRadius, rect.bottom),
               radius: new Radius.circular(bottomLeftRadius), clockwise: false);
@@ -979,17 +1005,19 @@ class _BubbleShape extends ShapeBorder {
   @override
   ShapeBorder scale(double t) {
     return new _BubbleShape(
-        popupDirection,
-        targetCenter,
-        borderRadius,
-        arrowBaseWidth,
-        arrowTipDistance,
-        borderColor,
-        borderWidth,
-        left,
-        top,
-        right,
-        bottom);
+      popupDirection,
+      targetCenter,
+      borderRadius,
+      arrowBaseWidth,
+      arrowTipDistance,
+      borderColor,
+      borderWidth,
+      left,
+      top,
+      right,
+      bottom,
+      arrowFromCenter,
+    );
   }
 }
 
