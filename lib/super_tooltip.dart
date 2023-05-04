@@ -9,6 +9,8 @@ enum ShowCloseButton { inside, outside, none }
 
 enum ClipAreaShape { oval, rectangle }
 
+enum AlignDirection { left, right, top, bottom, center, none }
+
 typedef OutSideTapHandler = void Function();
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -171,12 +173,20 @@ class SuperTooltip {
   final double? arrowFromTopLeft;
 
   ///
-  /// whether arrow should be center or not
-  final bool isCenterArrow;
-
-  ///
   /// content's padding
   final EdgeInsets contentPadding;
+
+  ///
+  /// where to align content box
+  final AlignDirection alignDirection;
+
+  ///
+  /// move x position after set tooltip box's x position
+  final double dx;
+
+  ///
+  /// move y position after set tooltip box's y position
+  final double dy;
 
   Offset? _targetCenter;
   OverlayEntry? _backGroundOverlay;
@@ -224,13 +234,13 @@ class SuperTooltip {
     this.blockOutsidePointerEvents = true,
     this.containsBackgroundOverlay = true,
     this.automaticallyVerticalDirection = false,
-    this.arrowFromTopLeft,
-    this.isCenterArrow = true,
+    this.arrowFromTopLeft = 0,
     this.contentPadding = const EdgeInsets.all(10),
+    this.alignDirection = AlignDirection.center,
+    this.dx = 0,
+    this.dy = 0,
   })  : assert((maxWidth ?? double.infinity) >= (minWidth ?? 0.0)),
-        assert((maxHeight ?? double.infinity) >= (minHeight ?? 0.0)),
-        assert((isCenterArrow && arrowFromTopLeft == null) ||
-            (!isCenterArrow && arrowFromTopLeft != null));
+        assert((maxHeight ?? double.infinity) >= (minHeight ?? 0.0));
 
   ///
   /// Removes the Tooltip from the overlay
@@ -348,21 +358,25 @@ class SuperTooltip {
                 child: Center(
                     child: CustomSingleChildLayout(
                         delegate: _PopupBallonLayoutDelegate(
-                            popupDirection: popupDirection,
-                            targetCenter: _targetCenter,
-                            minWidth: minWidth,
-                            maxWidth: maxWidth,
-                            minHeight: minHeight,
-                            maxHeight: maxHeight,
-                            outSidePadding: minimumOutSidePadding,
-                            top: top,
-                            bottom: bottom,
-                            left: left,
-                            right: right,
-                            arrowFromTopLeft: arrowFromTopLeft,
-                            borderRadius: borderRadius,
-                            arrowWidth: arrowBaseWidth,
-                            isCenterArrow: isCenterArrow),
+                          popupDirection: popupDirection,
+                          targetCenter: _targetCenter,
+                          minWidth: minWidth,
+                          maxWidth: maxWidth,
+                          minHeight: minHeight,
+                          maxHeight: maxHeight,
+                          outSidePadding: minimumOutSidePadding,
+                          top: top,
+                          bottom: bottom,
+                          left: left,
+                          right: right,
+                          arrowFromTopLeft: arrowFromTopLeft,
+                          borderRadius: borderRadius,
+                          arrowWidth: arrowBaseWidth,
+                          alignDirection: alignDirection,
+                          targetSize: renderBox.size,
+                          dx: dx,
+                          dy: dy,
+                        ),
                         child: Stack(
                           fit: StackFit.passthrough,
                           children: [
@@ -413,7 +427,7 @@ class SuperTooltip {
               right,
               bottom,
               arrowFromTopLeft ?? 0,
-              isCenterArrow,
+              alignDirection == AlignDirection.center,
               contentPadding,
             )),
         margin: _getBallonContainerMargin(),
@@ -542,7 +556,10 @@ class _PopupBallonLayoutDelegate extends SingleChildLayoutDelegate {
   final double _arrowFromTopLeft;
   final double _borderRadius;
   final double _arrowWidth;
-  final bool _isCenterArrow;
+  final AlignDirection _alignDirection;
+  final Size _targetSize;
+  final double _dx;
+  final double _dy;
 
   _PopupBallonLayoutDelegate({
     TooltipDirection? popupDirection,
@@ -559,7 +576,10 @@ class _PopupBallonLayoutDelegate extends SingleChildLayoutDelegate {
     double? arrowFromTopLeft,
     double? borderRadius,
     double? arrowWidth,
-    required bool isCenterArrow,
+    required AlignDirection alignDirection,
+    required Size targetSize,
+    required double dx,
+    required double dy,
   })  : _targetCenter = targetCenter,
         _popupDirection = popupDirection,
         _minWidth = minWidth,
@@ -574,110 +594,151 @@ class _PopupBallonLayoutDelegate extends SingleChildLayoutDelegate {
         _arrowFromTopLeft = arrowFromTopLeft ?? 0,
         _borderRadius = borderRadius ?? 0,
         _arrowWidth = arrowWidth ?? 0,
-        _isCenterArrow = isCenterArrow;
+        _alignDirection = alignDirection,
+        _targetSize = targetSize,
+        _dx = dx,
+        _dy = dy;
 
   @override
   Offset getPositionForChild(Size size, Size childSize) {
-    double? calcLeftMostXtoTarget() {
-      double? leftMostXtoTarget;
-      if (_left != null) {
-        leftMostXtoTarget = _left;
-      } else if (_right != null) {
-        leftMostXtoTarget = max(
-            size.topLeft(Offset.zero).dx + _outSidePadding!,
-            size.topRight(Offset.zero).dx -
-                _outSidePadding! -
-                childSize.width -
-                _right!);
-      } else {
-        leftMostXtoTarget = max(
-            _outSidePadding!,
-            min(
-                _targetCenter!.dx - childSize.width / 2,
-                size.topRight(Offset.zero).dx -
-                    _outSidePadding! -
-                    childSize.width));
-      }
-      return leftMostXtoTarget;
+    double? calcLeftMostXtoCenterTarget() {
+      return max(
+        _outSidePadding!,
+        min(
+          _targetCenter!.dx - childSize.width / 2,
+          size.topRight(Offset.zero).dx - _outSidePadding! - childSize.width,
+        ),
+      );
     }
 
-    double? calcTopMostYtoTarget() {
-      double? topmostYtoTarget;
-      if (_top != null) {
-        topmostYtoTarget = _top;
-      } else if (_bottom != null) {
-        topmostYtoTarget = max(
-            size.topLeft(Offset.zero).dy + _outSidePadding!,
-            size.bottomRight(Offset.zero).dy -
-                _outSidePadding! -
-                childSize.height -
-                _bottom!);
-      } else {
-        topmostYtoTarget = max(
-            _outSidePadding!,
-            min(
-                _targetCenter!.dy - childSize.height / 2,
-                size.bottomRight(Offset.zero).dy -
-                    _outSidePadding! -
-                    childSize.height));
-      }
-      return topmostYtoTarget;
+    double? calcTopMostYtoCenterTarget() {
+      return max(
+        _outSidePadding!,
+        min(
+          _targetCenter!.dy - childSize.height / 2,
+          size.bottomRight(Offset.zero).dy -
+              _outSidePadding! -
+              childSize.height,
+        ),
+      );
     }
 
+    /// 툴팁 박스의 맨 왼쪽 x좌표
+    var _xPosition = 0.0;
+
+    /// 툴팁 박스의 맨 위쪽 y좌표
+    var _yPosition = 0.0;
+
+    // 고정 왼쪽 값이 주어지면 해당 값으로 셋팅한다.
+    if (_left != null) {
+      _xPosition = _left!;
+      // 고정 오른쪽 값이 주어지면 해당 값으로 셋팅한다.
+    } else if (_right != null) {
+      _xPosition = max(
+          size.topLeft(Offset.zero).dx + _outSidePadding!,
+          size.topRight(Offset.zero).dx -
+              _outSidePadding! -
+              childSize.width -
+              _right!);
+      // 고정 x좌표가 주어지지 않았다면 방향에 따라 상대적 x좌표를 셋팅한다.
+    } else {
+      switch (_alignDirection) {
+        case AlignDirection.center:
+          // x,y좌표에 툴팁이 중앙일 때의 x 좌표를 셋팅한다.
+          _xPosition = calcLeftMostXtoCenterTarget()!;
+          break;
+        case AlignDirection.left:
+          // x좌표를 타겟의 맨 왼쪽 x좌표와 툴팁의 x좌표가 일치하도록 셋팅한다.
+          _xPosition = _targetCenter!.dx - _targetSize.width / 2;
+          break;
+        case AlignDirection.right:
+          // x좌표를 타겟의 맨 오른쪽 x좌표와 툴팁의 맨 오른쪽 x좌표가 일차하도록 셋팅한다.
+          _xPosition = _targetCenter!.dx -
+              _targetSize.width / 2 -
+              (childSize.width - _targetSize.width);
+          break;
+        // y좌표를 타겟의 맨 왼쪽 y좌표와 툴팁의 y좌표가 동일하도록 셋팅한다.
+        case AlignDirection.none:
+          _xPosition = _xPosition +
+              childSize.width / 2 -
+              _arrowFromTopLeft -
+              _borderRadius -
+              _arrowWidth / 2;
+          break;
+        default:
+          break;
+      }
+    }
+
+    // 고정 윗쪽 값이 주어지면 해당 값으로 셋팅한다.
+    if (_top != null) {
+      _yPosition = _top!;
+      // 고정 아래쪽 값이 주어지면 해당 값으로 셋팅한다.
+    } else if (_bottom != null) {
+      _yPosition = max(
+          size.topLeft(Offset.zero).dy + _outSidePadding!,
+          size.bottomRight(Offset.zero).dy -
+              _outSidePadding! -
+              childSize.height -
+              _bottom!);
+      // 고정 y좌표가 주어지지 않았다면 방향에 따라 상대적 y좌표를 셋팅한다.
+    } else {
+      switch (_alignDirection) {
+        case AlignDirection.center:
+          // x,y좌표에 툴팁이 중앙일 때의 y 좌표를 셋팅한다.
+          _yPosition = calcTopMostYtoCenterTarget()!;
+          break;
+        // y좌표를 타겟의 맨 왼쪽 y좌표와 툴팁의 y좌표가 동일하도록 셋팅한다.
+        case AlignDirection.top:
+          _yPosition = _targetCenter!.dy - _targetSize.height / 2;
+          break;
+        // y좌표를 타겟의 맨 오른쪽 y좌표와 툴팁의 맨 오른쪽 y좌표가 일차하도록 셋팅한다.
+        case AlignDirection.bottom:
+          _yPosition = _targetCenter!.dy -
+              _targetSize.height / 2 -
+              (childSize.height - _targetSize.height);
+          break;
+        case AlignDirection.none:
+          _yPosition = _yPosition +
+              childSize.height / 2 -
+              _arrowFromTopLeft -
+              _borderRadius -
+              _arrowWidth / 2;
+          break;
+        default:
+          break;
+      }
+    }
+
+    // 방향에 따라 툴팁의 painter가 시작될 Offset을 전달한다.
     switch (_popupDirection) {
       case TooltipDirection.down:
-        final arrowFromTopLeft = _arrowFromTopLeft > childSize.width
-            ? childSize.width
-            : _arrowFromTopLeft;
-        final awayFromCenter = _isCenterArrow
-            ? 0
-            : childSize.height / 2 -
-                arrowFromTopLeft -
-                _borderRadius -
-                _arrowWidth / 2;
         return new Offset(
-            calcLeftMostXtoTarget()! + awayFromCenter, _targetCenter!.dy);
+          max(_xPosition + _dx, _outSidePadding ?? 0),
+          max(
+            _targetCenter!.dy + _dy,
+            _outSidePadding ?? 0,
+          ),
+        );
 
       case TooltipDirection.up:
         var top = _top ?? _targetCenter!.dy - childSize.height;
-        // 만약 센터 화살표가 아니면 이동한 만큼 툴팁의 위치를 옮겨준다.
-        final arrowFromTopLeft = _arrowFromTopLeft > childSize.width
-            ? childSize.width
-            : _arrowFromTopLeft;
-        final awayFromCenter = _isCenterArrow
-            ? 0
-            : childSize.height / 2 -
-                arrowFromTopLeft -
-                _borderRadius -
-                _arrowWidth / 2;
-        return new Offset(calcLeftMostXtoTarget()! + awayFromCenter, top);
+        return new Offset(
+          max(_xPosition + _dx, _outSidePadding ?? 0),
+          min(top + _dy, _outSidePadding ?? 0),
+        );
 
       case TooltipDirection.left:
-        final arrowFromTopLeft = _arrowFromTopLeft > childSize.height
-            ? childSize.height
-            : _arrowFromTopLeft;
-        final awayFromCenter = _isCenterArrow
-            ? 0
-            : childSize.height / 2 -
-                arrowFromTopLeft -
-                _borderRadius -
-                _arrowWidth / 2;
         var left = _left ?? _targetCenter!.dx - childSize.width;
-        return new Offset(left, calcTopMostYtoTarget()! + awayFromCenter);
+        return new Offset(
+          max(left + _dx, _outSidePadding ?? 0),
+          max(_yPosition + _dy, _outSidePadding ?? 0),
+        );
 
       case TooltipDirection.right:
-        final arrowFromTopLeft = _arrowFromTopLeft > childSize.height
-            ? childSize.height
-            : _arrowFromTopLeft;
-        final awayFromCenter = _isCenterArrow
-            ? 0
-            : childSize.height / 2 -
-                arrowFromTopLeft -
-                _borderRadius -
-                _arrowWidth / 2;
         return new Offset(
-          _targetCenter!.dx,
-          calcTopMostYtoTarget()! + awayFromCenter,
+          max(_targetCenter!.dx + _dx, _outSidePadding ?? 0),
+          max(_yPosition + _dy, _outSidePadding ?? 0),
         );
 
       default:
@@ -1233,7 +1294,7 @@ class _AnimationWrapperState extends State<_AnimationWrapper> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance!.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         setState(() {
           opacity = 1.0;
