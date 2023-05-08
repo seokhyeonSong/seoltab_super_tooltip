@@ -644,7 +644,7 @@ class _PopupBallonLayoutDelegate extends SingleChildLayoutDelegate {
     } else {
       switch (_alignDirection) {
         case AlignDirection.center:
-          // x,y좌표에 툴팁이 중앙일 때의 x 좌표를 셋팅한다.
+          // x좌표에 툴팁이 중앙일 때의 x 좌표를 셋팅한다.
           _xPosition = calcLeftMostXtoCenterTarget()!;
           break;
         case AlignDirection.left:
@@ -659,13 +659,14 @@ class _PopupBallonLayoutDelegate extends SingleChildLayoutDelegate {
           break;
         // y좌표를 타겟의 맨 왼쪽 y좌표와 툴팁의 y좌표가 동일하도록 셋팅한다.
         case AlignDirection.none:
-          _xPosition = _xPosition +
+          _xPosition = calcLeftMostXtoCenterTarget()! +
               childSize.width / 2 -
               _arrowFromTopLeft -
               _borderRadius -
               _arrowWidth / 2;
           break;
         default:
+          _xPosition = calcLeftMostXtoCenterTarget()!;
           break;
       }
     }
@@ -685,7 +686,7 @@ class _PopupBallonLayoutDelegate extends SingleChildLayoutDelegate {
     } else {
       switch (_alignDirection) {
         case AlignDirection.center:
-          // x,y좌표에 툴팁이 중앙일 때의 y 좌표를 셋팅한다.
+          // y좌표에 툴팁이 중앙일 때의 y 좌표를 셋팅한다.
           _yPosition = calcTopMostYtoCenterTarget()!;
           break;
         // y좌표를 타겟의 맨 왼쪽 y좌표와 툴팁의 y좌표가 동일하도록 셋팅한다.
@@ -699,13 +700,14 @@ class _PopupBallonLayoutDelegate extends SingleChildLayoutDelegate {
               (childSize.height - _targetSize.height);
           break;
         case AlignDirection.none:
-          _yPosition = _yPosition +
+          _yPosition = calcTopMostYtoCenterTarget()! +
               childSize.height / 2 -
               _arrowFromTopLeft -
               _borderRadius -
               _arrowWidth / 2;
           break;
         default:
+          _yPosition = calcTopMostYtoCenterTarget()!;
           break;
       }
     }
@@ -723,16 +725,22 @@ class _PopupBallonLayoutDelegate extends SingleChildLayoutDelegate {
 
       case TooltipDirection.up:
         var top = _top ?? _targetCenter!.dy - childSize.height;
-        return new Offset(
-          max(_xPosition + _dx, _outSidePadding ?? 0),
-          min(top + _dy, _outSidePadding ?? 0),
+        return Offset(
+          _xPosition + _dx > (_outSidePadding ?? 0)
+              ? _xPosition + _dx
+              : _outSidePadding ?? 0,
+          top + _dy > (_outSidePadding ?? 0) ? top + _dy : _outSidePadding ?? 0,
         );
 
       case TooltipDirection.left:
         var left = _left ?? _targetCenter!.dx - childSize.width;
-        return new Offset(
-          max(left + _dx, _outSidePadding ?? 0),
-          max(_yPosition + _dy, _outSidePadding ?? 0),
+        return Offset(
+          left + _dx > (_outSidePadding ?? 0)
+              ? left + _dx
+              : _outSidePadding ?? 0,
+          _yPosition + _dy > (_outSidePadding ?? 0)
+              ? _yPosition + _dy
+              : _outSidePadding ?? 0,
         );
 
       case TooltipDirection.right:
