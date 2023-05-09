@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 import "dart:ui" as ui;
 
@@ -10,6 +11,8 @@ enum ShowCloseButton { inside, outside, none }
 enum ClipAreaShape { oval, rectangle }
 
 enum AlignDirection { left, right, top, bottom, center, none }
+
+enum ScrollDirection { vertical, horizontal }
 
 typedef OutSideTapHandler = void Function();
 
@@ -188,9 +191,28 @@ class SuperTooltip {
   /// move y position after set tooltip box's y position
   final double dy;
 
+  ///
+  /// scroll controller that controls this tooltip when tooltip should be scrolled
+  final ScrollController? scrollController;
+
+  ///
+  /// enable tooltip to overflow to outside of screen
+  /// this ignores [minimumOutSidePadding]
+  final bool enableOverflow;
+
+  ///
+  /// debounce time that how often this tooltip should be repainted
+  final Duration scrollReloadDelay;
+
+  ///
+  /// where to scroll
+  final ScrollDirection? scrollDirection;
+
   Offset? _targetCenter;
   OverlayEntry? _backGroundOverlay;
   OverlayEntry? _ballonOverlay;
+  Timer? _debounce;
+  Function()? scrollControllerListener;
 
   SuperTooltip({
     this.tooltipContainerKey,
@@ -239,8 +261,14 @@ class SuperTooltip {
     this.alignDirection = AlignDirection.center,
     this.dx = 0,
     this.dy = 0,
+    this.scrollController,
+    this.enableOverflow = false,
+    this.scrollReloadDelay = const Duration(milliseconds: 100),
+    this.scrollDirection,
   })  : assert((maxWidth ?? double.infinity) >= (minWidth ?? 0.0)),
-        assert((maxHeight ?? double.infinity) >= (minHeight ?? 0.0));
+        assert((maxHeight ?? double.infinity) >= (minHeight ?? 0.0)),
+        assert((scrollController != null && scrollDirection != null) ||
+            (scrollController == null && scrollDirection == null));
 
   ///
   /// Removes the Tooltip from the overlay
@@ -249,6 +277,9 @@ class SuperTooltip {
       onClose!();
     }
 
+    if (scrollController != null && scrollControllerListener != null) {
+      scrollController!.removeListener(scrollControllerListener!);
+    }
     _ballonOverlay!.remove();
     _backGroundOverlay?.remove();
     isOpen = false;
@@ -376,6 +407,7 @@ class SuperTooltip {
                           targetSize: renderBox.size,
                           dx: dx,
                           dy: dy,
+                          enableOverflow: enableOverflow,
                         ),
                         child: Stack(
                           fit: StackFit.passthrough,
@@ -396,6 +428,62 @@ class SuperTooltip {
 
     overlay.insertAll(overlays);
     isOpen = true;
+    // 스크롤 컨트롤러가 있다면 스크롤 컨트롤러의 결과에 따라 툴팁을 다시 그려준다.
+    if (scrollController != null) {
+      scrollControllerListener = () {
+        _debounce?.cancel();
+        _debounce = Timer(scrollReloadDelay, () {
+          final renderBox = targetContext.findRenderObject() as RenderBox;
+          overlay ??= Overlay.of(targetContext);
+          final overlayRenderBox =
+              overlay?.context.findRenderObject() as RenderBox?;
+
+          _targetCenter = renderBox.localToGlobal(
+              renderBox.size.center(Offset.zero),
+              ancestor: overlayRenderBox);
+
+          _ballonOverlay!.remove();
+
+          _ballonOverlay = OverlayEntry(
+            builder: (context) => Center(
+              child: CustomSingleChildLayout(
+                delegate: _PopupBallonLayoutDelegate(
+                  popupDirection: popupDirection,
+                  targetCenter: _targetCenter,
+                  minWidth: minWidth,
+                  maxWidth: maxWidth,
+                  minHeight: minHeight,
+                  maxHeight: maxHeight,
+                  outSidePadding: minimumOutSidePadding,
+                  top: top,
+                  bottom: bottom,
+                  left: left,
+                  right: right,
+                  arrowFromTopLeft: arrowFromTopLeft,
+                  borderRadius: borderRadius,
+                  arrowWidth: arrowBaseWidth,
+                  alignDirection: alignDirection,
+                  targetSize: renderBox.size,
+                  dx: dx,
+                  dy: dy,
+                  enableOverflow: enableOverflow,
+                ),
+                child: Stack(
+                  fit: StackFit.passthrough,
+                  children: [
+                    _buildPopUp(),
+                    _buildCloseButton(),
+                  ],
+                ),
+              ),
+            ),
+          );
+
+          overlay!.insert(_ballonOverlay!);
+        });
+      };
+      scrollController!.addListener(scrollControllerListener!);
+    }
   }
 
   Widget _buildPopUp() {
@@ -560,6 +648,7 @@ class _PopupBallonLayoutDelegate extends SingleChildLayoutDelegate {
   final Size _targetSize;
   final double _dx;
   final double _dy;
+  final bool _enableOverflow;
 
   _PopupBallonLayoutDelegate({
     TooltipDirection? popupDirection,
@@ -580,6 +669,7 @@ class _PopupBallonLayoutDelegate extends SingleChildLayoutDelegate {
     required Size targetSize,
     required double dx,
     required double dy,
+    required bool enableOverflow,
   })  : _targetCenter = targetCenter,
         _popupDirection = popupDirection,
         _minWidth = minWidth,
@@ -597,11 +687,13 @@ class _PopupBallonLayoutDelegate extends SingleChildLayoutDelegate {
         _alignDirection = alignDirection,
         _targetSize = targetSize,
         _dx = dx,
-        _dy = dy;
+        _dy = dy,
+        _enableOverflow = enableOverflow;
 
   @override
   Offset getPositionForChild(Size size, Size childSize) {
     double? calcLeftMostXtoCenterTarget() {
+      if (_enableOverflow) return _targetCenter!.dx - childSize.width / 2;
       return max(
         _outSidePadding!,
         min(
@@ -612,6 +704,7 @@ class _PopupBallonLayoutDelegate extends SingleChildLayoutDelegate {
     }
 
     double? calcTopMostYtoCenterTarget() {
+      if (_enableOverflow) return _targetCenter!.dy - childSize.height / 2;
       return max(
         _outSidePadding!,
         min(
@@ -628,6 +721,32 @@ class _PopupBallonLayoutDelegate extends SingleChildLayoutDelegate {
 
     /// 툴팁 박스의 맨 위쪽 y좌표
     var _yPosition = 0.0;
+
+    late final double _newArrowFromTopLeft;
+
+    // _arrowFromTopLeft가 규격을 넘어서는 경우 규격 안으로 바꿔준다.
+    if (_arrowFromTopLeft < 0) {
+      _newArrowFromTopLeft = 0;
+    } else {
+      if (_popupDirection == TooltipDirection.up ||
+          _popupDirection == TooltipDirection.down) {
+        if (_arrowFromTopLeft >
+            (childSize.width - _borderRadius * 2 - _arrowWidth)) {
+          _newArrowFromTopLeft =
+              (childSize.width - _borderRadius * 2 - _arrowWidth);
+        } else {
+          _newArrowFromTopLeft = _arrowFromTopLeft;
+        }
+      } else {
+        if (_arrowFromTopLeft >
+            (childSize.height - _borderRadius * 2 - _arrowWidth)) {
+          _newArrowFromTopLeft =
+              (childSize.height - _borderRadius * 2 - _arrowWidth);
+        } else {
+          _newArrowFromTopLeft = _arrowFromTopLeft;
+        }
+      }
+    }
 
     // 고정 왼쪽 값이 주어지면 해당 값으로 셋팅한다.
     if (_left != null) {
@@ -657,11 +776,10 @@ class _PopupBallonLayoutDelegate extends SingleChildLayoutDelegate {
               _targetSize.width / 2 -
               (childSize.width - _targetSize.width);
           break;
-        // y좌표를 타겟의 맨 왼쪽 y좌표와 툴팁의 y좌표가 동일하도록 셋팅한다.
         case AlignDirection.none:
           _xPosition = calcLeftMostXtoCenterTarget()! +
               childSize.width / 2 -
-              _arrowFromTopLeft -
+              _newArrowFromTopLeft -
               _borderRadius -
               _arrowWidth / 2;
           break;
@@ -702,7 +820,7 @@ class _PopupBallonLayoutDelegate extends SingleChildLayoutDelegate {
         case AlignDirection.none:
           _yPosition = calcTopMostYtoCenterTarget()! +
               childSize.height / 2 -
-              _arrowFromTopLeft -
+              _newArrowFromTopLeft -
               _borderRadius -
               _arrowWidth / 2;
           break;
@@ -716,37 +834,43 @@ class _PopupBallonLayoutDelegate extends SingleChildLayoutDelegate {
     switch (_popupDirection) {
       case TooltipDirection.down:
         return new Offset(
-          max(_xPosition + _dx, _outSidePadding ?? 0),
-          max(
-            _targetCenter!.dy + _dy,
-            _outSidePadding ?? 0,
-          ),
+          _enableOverflow
+              ? _xPosition + _dx
+              : max(_xPosition + _dx, _outSidePadding ?? 0),
+          _enableOverflow
+              ? _targetCenter!.dy + _dy
+              : max(
+                  _targetCenter!.dy + _dy,
+                  _outSidePadding ?? 0,
+                ),
         );
 
       case TooltipDirection.up:
         var top = _top ?? _targetCenter!.dy - childSize.height;
         return Offset(
-          _xPosition + _dx > (_outSidePadding ?? 0)
+          _enableOverflow
               ? _xPosition + _dx
-              : _outSidePadding ?? 0,
-          top + _dy > (_outSidePadding ?? 0) ? top + _dy : _outSidePadding ?? 0,
+              : max(_xPosition + _dx, _outSidePadding ?? 0),
+          _enableOverflow ? top + _dy : max(top + _dy, _outSidePadding ?? 0),
         );
 
       case TooltipDirection.left:
         var left = _left ?? _targetCenter!.dx - childSize.width;
         return Offset(
-          left + _dx > (_outSidePadding ?? 0)
-              ? left + _dx
-              : _outSidePadding ?? 0,
-          _yPosition + _dy > (_outSidePadding ?? 0)
+          _enableOverflow ? left + _dx : max(left + _dx, _outSidePadding ?? 0),
+          _enableOverflow
               ? _yPosition + _dy
-              : _outSidePadding ?? 0,
+              : max(_yPosition + _dy, _outSidePadding ?? 0),
         );
 
       case TooltipDirection.right:
         return new Offset(
-          max(_targetCenter!.dx + _dx, _outSidePadding ?? 0),
-          max(_yPosition + _dy, _outSidePadding ?? 0),
+          _enableOverflow
+              ? _targetCenter!.dx + _dx
+              : max(_targetCenter!.dx + _dx, _outSidePadding ?? 0),
+          _enableOverflow
+              ? _yPosition + _dy
+              : max(_yPosition + _dy, _outSidePadding ?? 0),
         );
 
       default:
@@ -805,9 +929,11 @@ class _PopupBallonLayoutDelegate extends SingleChildLayoutDelegate {
           calcMinHeight = calcMaxHeight =
               constraints.maxHeight - _bottom! - _targetCenter!.dy;
         } else {
-          calcMaxHeight = min((_maxHeight ?? constraints.maxHeight),
-                  constraints.maxHeight - _targetCenter!.dy) -
-              _outSidePadding!;
+          calcMaxHeight = _enableOverflow
+              ? constraints.maxHeight
+              : min((_maxHeight ?? constraints.maxHeight),
+                      constraints.maxHeight - _targetCenter!.dy) -
+                  _outSidePadding!;
         }
         break;
 
@@ -817,8 +943,9 @@ class _PopupBallonLayoutDelegate extends SingleChildLayoutDelegate {
         if (_top != null) {
           calcMinHeight = calcMaxHeight = _targetCenter!.dy - _top!;
         } else {
-          calcMaxHeight =
-              min((_maxHeight ?? constraints.maxHeight), _targetCenter!.dy) -
+          calcMaxHeight = _enableOverflow
+              ? constraints.maxHeight
+              : min((_maxHeight ?? constraints.maxHeight), _targetCenter!.dy) -
                   _outSidePadding!;
         }
         break;
@@ -829,9 +956,11 @@ class _PopupBallonLayoutDelegate extends SingleChildLayoutDelegate {
           calcMinWidth =
               calcMaxWidth = constraints.maxWidth - _right! - _targetCenter!.dx;
         } else {
-          calcMaxWidth = min((_maxWidth ?? constraints.maxWidth),
-                  constraints.maxWidth - _targetCenter!.dx) -
-              _outSidePadding!;
+          calcMaxWidth = _enableOverflow
+              ? constraints.maxWidth
+              : min((_maxWidth ?? constraints.maxWidth),
+                      constraints.maxWidth - _targetCenter!.dx) -
+                  _outSidePadding!;
         }
         break;
 
@@ -840,8 +969,9 @@ class _PopupBallonLayoutDelegate extends SingleChildLayoutDelegate {
         if (_left != null) {
           calcMinWidth = calcMaxWidth = _targetCenter!.dx - _left!;
         } else {
-          calcMaxWidth =
-              min((_maxWidth ?? constraints.maxWidth), _targetCenter!.dx) -
+          calcMaxWidth = _enableOverflow
+              ? constraints.maxWidth
+              : min((_maxWidth ?? constraints.maxWidth), _targetCenter!.dx) -
                   _outSidePadding!;
         }
         break;
@@ -1037,10 +1167,11 @@ class _BubbleShape extends ShapeBorder {
 
           // up to arrow tip   \
           ..lineTo(
-              isCenterArrow
-                  ? targetCenter!.dx
-                  : (leftWithAFTL + rightWithAFTL) / 2,
-              targetCenter!.dy - arrowTipDistance)
+            isCenterArrow
+                ? targetCenter!.dx
+                : (leftWithAFTL + rightWithAFTL) / 2,
+            targetCenter!.dy - arrowTipDistance,
+          )
 
           //  down /
           ..lineTo(
